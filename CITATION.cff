@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "BayesClustNof1: Bayesian Clustering and Hierarchical Models for Series of N-of-1 Trials"
+version: 0.1.0
+date-released: 2026-11-21
+license: MIT
+repository-code: "https://github.com/abdullah-al-mamun-stat/BayesClustNof1"
+abstract: "R package (C++ via Rcpp) that fits the Bayesian home-host clustering model and the hierarchical model to series of N-of-1 trials, with spike-and-slab time, block and period effects and optional AR(1) errors. Version 0.1.0 is the code used for all results in the accompanying paper."
+keywords:
+  - N-of-1 trials
+  - Bayesian clustering
+  - hierarchical model
+  - product partition model
+  - R
+authors:
+  - family-names: "Al-Mamun"
+    given-names: "M. Abdullah"
+    email: "abdullah.al.mamun.stat@gmail.com"
+  - family-names: "Chapple"
+    given-names: "Andrew G."

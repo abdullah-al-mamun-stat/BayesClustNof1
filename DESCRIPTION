@@ -1,0 +1,37 @@
+Package: BayesClustNof1
+Title: Bayesian Clustering and Hierarchical Models for Series of N-of-1 Trials
+Version: 0.1.0
+Authors@R: c(
+    person("M. Abdullah", "Al-Mamun", email = "abdullah.al.mamun.stat@gmail.com",
+           role = c("aut", "cre")),
+    person("Andrew G.", "Chapple", role = "aut"))
+Description: Fits Bayesian models to series of N-of-1 trials with a common
+    protocol. The home-host clustering model groups patients with similar
+    treatment effects and borrows information mainly within groups; the
+    hierarchical model with half-Cauchy priors on the between-patient standard
+    deviations borrows from a common normal distribution. Both models include spike-and-slab
+    priors for time, block and period effects and optional first-order
+    autoregressive errors within treatment periods, and are fitted by Markov
+    chain Monte Carlo samplers written in C++. The clustering model returns
+    the posterior co-clustering matrix and the posterior distribution of the
+    number of clusters, and a point estimate of the partition is available.
+URL: https://github.com/abdullah-al-mamun-stat/BayesClustNof1
+BugReports: https://github.com/abdullah-al-mamun-stat/BayesClustNof1/issues
+License: MIT + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.1
+Depends:
+    R (>= 3.5.0)
+LinkingTo:
+    Rcpp
+Imports:
+    Rcpp,
+    stats
+Suggests:
+    knitr,
+    rmarkdown,
+    testthat (>= 3.0.0)
+VignetteBuilder: knitr
+LazyData: true
+Config/testthat/edition: 3

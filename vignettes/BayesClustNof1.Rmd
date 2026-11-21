@@ -1,0 +1,289 @@
+---
+title: "Getting started with BayesClustNof1"
+author: "M. Abdullah Al-Mamun and Andrew G. Chapple"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Getting started with BayesClustNof1}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", fig.width = 6, fig.height = 4.5)
+```
+
+This guide shows how to fit the models of the accompanying paper to a series
+of N-of-1 trials, how to read the output, and how to reproduce the analysis
+of the Raynaud data in the paper. The samplers in this package are the code
+that produced every result in the paper.
+
+# The models
+
+Let $y_{ik}$ be the $k$-th outcome of patient $i = 1, \dots, N$. All models use
+$$
+y_{ik} = \mu_i + \beta_i A_{ik} + \alpha t_{ik} + \mathbf{B}_{ik}^\top \boldsymbol\gamma + \delta P_{ik} + \varepsilon_{ik},
+$$
+where $A_{ik}$ indicates active treatment, $t_{ik}$ is the day within the
+treatment period, $\mathbf{B}_{ik}$ holds block indicators and $P_{ik}$
+indicates the second period within a block. The patient-specific treatment
+effect $\beta_i$ is the parameter of interest. The time, block and period
+effects have spike-and-slab priors, and the errors are either independent or
+AR(1) within each treatment period. The models differ in the prior on the
+$\mu_i$ and $\beta_i$:
+
+* **Hierarchical model** (`hierarchical_sampler()`): $\beta_i \sim N(\tilde\beta, \sigma^2_\beta)$
+  with a half-Cauchy prior on $\sigma_\beta$. Every patient borrows from the
+  same population distribution.
+* **Home--host clustering model** (`clustering_sampler()`): each patient is either a
+  *home* with its own value $b_i \sim N(m, \tau^2)$, or a *guest* that takes
+  the value of a home. The prior on the indicators is
+  $p(\boldsymbol\zeta) \propto r^{N-K}$ with $r = p_c/(1-p_c)$, where $K$ is
+  the number of homes (clusters) and $p_c$ is the clustering probability.
+  Patients borrow exactly within a cluster and partially across clusters.
+  As $p_c \to 0$ every patient is its own home and the model becomes the
+  hierarchical model.
+* **No-pooling reference**: the hierarchical model with the between-patient
+  variances fixed at 25 (`hierarchical_sampler(..., sigma_sq_mu = 25, sigma_sq_beta = 25)`),
+  so that each $\beta_i$ is estimated almost entirely from the patient's own data.
+
+# Data format
+
+```{r data}
+library(BayesClustNof1)
+head(nof1_example)
+```
+
+Each sampler takes the columns as separate vectors:
+
+| Argument | Meaning |
+|---|---|
+| `ID` | patient identifier |
+| `Y`  | outcome |
+| `A`  | treatment (the lowest value is the control condition) |
+| `t`  | day within the treatment period |
+| `B`  | block (the lowest value is the reference block) |
+| `P`  | position of the period within its block (the lowest value is the reference) |
+
+The data must be **sorted by patient and time**, because the AR(1) errors
+restart at the start of every treatment period and are evaluated in that
+order. `nof1_example` has 10 patients, 5 blocks and 6 days per period.
+Patients 3 and 7 respond to treatment (true effect 1.5); the others do not.
+
+# Fitting the models
+
+`iter` is the total number of iterations; the first half is discarded as
+burn-in. The paper uses 20,000 iterations and `ar1 = TRUE`.
+
+```{r fit}
+d <- nof1_example
+set.seed(1)
+fit_c <- clustering_sampler(iter = 20000, ID = d$ID, Y = d$Y, A = d$A, t = d$t,
+                            B = d$B, P = d$P, clust_prob = 0.3, ar1 = TRUE)
+set.seed(1)
+fit_h <- hierarchical_sampler(iter = 20000, ID = d$ID, Y = d$Y, A = d$A, t = d$t,
+                              B = d$B, P = d$P, ar1 = TRUE)
+```
+
+# Patient-specific treatment effects
+
+`subject_summary` gives the posterior mean and 95% credible interval of each
+$\mu_i$ and $\beta_i$. The posterior draws after burn-in are in
+`posterior_samples`; from them we compute the posterior probability of
+benefit, $P(\beta_i > 0 \mid y)$.
+
+```{r effects}
+p_benefit <- function(fit) colMeans(fit$posterior_samples$beta > 0)
+truth <- tapply(d$beta_true, d$ID, unique)
+data.frame(ID = fit_c$subject_summary$ID, true = truth,
+           clustering = round(fit_c$subject_summary$beta, 2),
+           clustering_95CI = fit_c$subject_summary$beta_95CI,
+           P_benefit_clust = round(p_benefit(fit_c), 3),
+           hierarchical = round(fit_h$subject_summary$beta, 2),
+           P_benefit_hier = round(p_benefit(fit_h), 3))
+```
+
+In the paper a patient is called a responder when $P(\beta_i > 0 \mid y) > 0.95$:
+
+```{r responders}
+which(p_benefit(fit_c) > 0.95)
+which(p_benefit(fit_h) > 0.95)
+```
+
+A forest plot of the two fits:
+
+```{r forest, fig.height = 5}
+ci <- function(fit) apply(fit$posterior_samples$beta, 2, quantile, c(0.025, 0.975))
+N <- length(truth); yy <- seq_len(N)
+plot(NA, xlim = range(ci(fit_c), ci(fit_h)), ylim = c(0.5, N + 0.5), yaxt = "n",
+     xlab = expression(beta[i]), ylab = "Patient")
+axis(2, at = yy, labels = names(truth), las = 1); abline(v = 0, lty = 2, col = "grey50")
+segments(ci(fit_c)[1, ], yy + 0.15, ci(fit_c)[2, ], yy + 0.15, col = "#1b6ca8", lwd = 2)
+points(fit_c$subject_summary$beta, yy + 0.15, pch = 19, col = "#1b6ca8")
+segments(ci(fit_h)[1, ], yy - 0.15, ci(fit_h)[2, ], yy - 0.15, col = "#c0392b", lwd = 2)
+points(fit_h$subject_summary$beta, yy - 0.15, pch = 17, col = "#c0392b")
+points(truth, yy, pch = 4, cex = 1.2)
+legend("bottomright", c("Clustering", "Hierarchical", "True effect"), pch = c(19, 17, 4),
+       col = c("#1b6ca8", "#c0392b", "black"), bty = "n")
+```
+
+# Other parameters
+
+```{r other}
+fit_c$other_summary      # error variance, base mean and SD, rho
+fit_c$alpha_summary      # time effect and its inclusion probability
+fit_c$gamma_summary      # block effects
+fit_c$delta_summary      # period effect
+```
+
+`RaoBlackwell_Pr` is the posterior inclusion probability of each nuisance
+effect, averaged over the conditional probabilities (lower Monte Carlo error
+than the proportion of draws).
+
+# Clusters and similarity between patients
+
+`coclustering_beta[i, j]` is the posterior probability that patients $i$ and
+$j$ share the same treatment effect.
+
+```{r cocluster, fig.width = 5.5, fig.height = 5}
+S <- fit_c$coclustering_beta
+image(1:N, 1:N, S[, N:1], zlim = c(0, 1), axes = FALSE, xlab = "Patient", ylab = "Patient",
+      col = hcl.colors(20, "Blues 3", rev = TRUE))
+axis(1, 1:N); axis(2, 1:N, labels = N:1, las = 1)
+round(S[c(3, 7), ], 2)
+```
+
+The posterior number of clusters, and a single partition that summarises the
+posterior (minimising the expected variation of information):
+
+```{r partition}
+fit_c$n_clusters_summary
+part <- estimate_partition(fit_c$posterior_samples$zeta_beta, loss = "VI")
+part
+```
+
+# Choosing the clustering probability
+
+$p_c$ sets the prior number of clusters. For $N = 10$ the prior mean of $K$
+is 6.9, 5.4, 4.5 and 3.0 for $p_c = 0.1, 0.3, 0.5, 0.9$. The paper uses
+$p_c = 0.3$ and reports how the results depend on $p_c$. It is good practice
+to refit the model with several values:
+
+```{r sensitivity}
+sens <- sapply(c(0.1, 0.3, 0.5, 0.9), function(pc) {
+  set.seed(1)
+  f <- clustering_sampler(20000, d$ID, d$Y, d$A, d$t, d$B, d$P, clust_prob = pc, ar1 = TRUE)
+  c(p_c = pc, RMSE = sqrt(mean((f$subject_summary$beta - truth)^2)),
+    mean_K = f$n_clusters_summary$mean[2])
+})
+round(t(sens), 3)
+```
+
+(The RMSE uses the known true effects, so it is only available for simulated data.)
+
+# Checking convergence
+
+Run several chains from different seeds and compare them, for example with
+the potential scale reduction factor of each $\beta_i$:
+
+```{r convergence}
+chains <- lapply(1:3, function(s) {
+  set.seed(100 + s)
+  clustering_sampler(20000, d$ID, d$Y, d$A, d$t, d$B, d$P, clust_prob = 0.3, ar1 = TRUE)$posterior_samples$beta
+})
+rhat <- function(x) {                           # x: draws x chains
+  n <- nrow(x); B <- n * var(colMeans(x)); W <- mean(apply(x, 2, var))
+  sqrt(((n - 1) / n * W + B / n) / W)
+}
+round(sapply(1:N, function(i) rhat(sapply(chains, function(ch) ch[, i]))), 3)
+plot(chains[[1]][, 3], type = "l", col = "grey40", xlab = "Iteration after burn-in",
+     ylab = expression(beta[3]))
+```
+
+# Further options
+
+* `ar1 = FALSE` assumes independent errors.
+* `hierarchical_sampler(..., sigma_sq_mu = 25, sigma_sq_beta = 25)` gives the
+  no-pooling reference used in the paper.
+* `A_beta`, `A_tau_beta` (and `A_mu`, `A_tau_mu`) set the half-Cauchy scales,
+  in the units of the outcome; the defaults are 1 for the treatment effects and
+  5 for the patient means.
+* `p_zeta_alpha`, `p_zeta_gamma`, `p_zeta_delta` and `sigma_sq_alpha`,
+  `sigma_sq_gamma`, `sigma_sq_delta` set the spike-and-slab priors
+  (defaults 0.1 and 1).
+* `fit$raw` holds every draw, including the burn-in.
+
+# Reproducing the Raynaud analysis in the paper
+
+The paper reanalyses the series of N-of-1 trials of sildenafil for Raynaud
+phenomenon (Roustit et al., 2018), comparing placebo with sildenafil 40 mg in
+38 patients (1,537 daily observations). These data are included as `raynaud`
+(see `?raynaud` for how they were derived from the public data). Lower scores
+mean fewer symptoms, so $\beta_i < 0$ favours sildenafil.
+
+The paper fits the hierarchical model, the clustering model with $p_c = 0.3$
+and the no-pooling reference, each with independent and with AR(1) errors,
+using 20,000 iterations and seed 123. The following code refits all six
+models (about a minute) and rebuilds the table of the application in the
+paper; the posterior draws are identical to those reported.
+
+```{r raynaud-fit}
+r <- raynaud
+fit_raynaud <- function(model, ar1) {
+  set.seed(123)
+  switch(model,
+    hier   = hierarchical_sampler(20000, r$ID, r$Y, r$A, r$t, r$B, r$P, ar1 = ar1),
+    clust  = clustering_sampler(20000, r$ID, r$Y, r$A, r$t, r$B, r$P, clust_prob = 0.3, ar1 = ar1),
+    nopool = hierarchical_sampler(20000, r$ID, r$Y, r$A, r$t, r$B, r$P,
+                                  sigma_sq_mu = 25, sigma_sq_beta = 25, ar1 = ar1))
+}
+ray <- list()
+for (ar1 in c(FALSE, TRUE)) for (m in c("hier", "clust", "nopool"))
+  ray[[paste0(m, if (ar1) "_AR1" else "")]] <- fit_raynaud(m, ar1)
+```
+
+```{r raynaud-table}
+ids <- ray$hier$subject_summary$ID
+f2 <- function(x) sub("^-(0\\.0+)$", "\\1", sprintf("%.2f", x))     # print -0.00 as 0.00
+est <- function(x) sprintf("%s (%s, %s)", f2(mean(x)), f2(quantile(x, 0.025)), f2(quantile(x, 0.975)))
+width <- function(f) mean(apply(f$posterior_samples$beta, 2, function(x) diff(quantile(x, c(0.025, 0.975)))))
+n95 <- function(f) sum(apply(f$posterior_samples$beta, 2, function(x) {
+  q <- quantile(x, c(0.025, 0.975)); q[1] > 0 | q[2] < 0 }))
+K <- function(f) if (is.null(f$posterior_samples$zeta_beta)) "--" else
+  sprintf("%.1f", mean(apply(f$posterior_samples$zeta_beta, 1, function(z) length(unique(z)))))
+tab <- do.call(rbind, lapply(names(ray), function(nm) {
+  f <- ray[[nm]]; B <- f$posterior_samples$beta
+  data.frame(errors = if (grepl("AR1", nm)) "AR(1)" else "independent",
+             model = c(hier = "Hierarchical", clust = "Clustering (p_c = 0.3)",
+                       nopool = "No pooling")[sub("_AR1", "", nm)],
+             beta_bar = est(f$beta_bar),
+             beta_31 = est(B[, ids == 31]), beta_32 = est(B[, ids == 32]),
+             width = f2(width(f)), n95 = n95(f),
+             rho = if (grepl("AR1", nm)) f2(mean(f$posterior_samples$rho)) else "--",
+             K_beta = K(f))
+}))
+knitr::kable(tab, row.names = FALSE)
+```
+
+Here $\bar\beta$ is the average of the 38 patient effects, $\beta_{31}$ and
+$\beta_{32}$ are the patients with the most negative and most positive
+separate estimates, width is the mean width of the 95% intervals of the
+$\beta_i$, $n_{95}$ is the number of patients whose 95% interval excludes zero,
+and $K_\beta$ is the posterior mean number of clusters.
+
+The posterior probability that each patient benefits, $P(\beta_i < 0 \mid y)$,
+in the models with AR(1) errors:
+
+```{r raynaud-benefit}
+p_sild <- function(f) colMeans(f$posterior_samples$beta < 0)
+round(sapply(ray[c("hier_AR1", "clust_AR1", "nopool_AR1")], function(f) range(p_sild(f))), 2)
+```
+
+The models that pool find little heterogeneity and no individual responder;
+the no-pooling reference gives much wider intervals.
+
+# Reference
+
+Roustit M, Giai J, Gaget O, et al. (2018). On-demand sildenafil as a treatment
+for Raynaud phenomenon: a series of n-of-1 trials. *Annals of Internal
+Medicine*, 169, 694--703.

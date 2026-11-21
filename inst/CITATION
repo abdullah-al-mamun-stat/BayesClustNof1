@@ -1,0 +1,10 @@
+bibentry(
+  bibtype = "Unpublished",
+  title   = "Local versus global borrowing of patient-specific treatment effects in series of {N}-of-1 trials: a {B}ayesian home-host clustering model",
+  author  = c(person("M. Abdullah", "Al-Mamun"), person("Andrew G.", "Chapple")),
+  year    = "2026",
+  note    = "Manuscript in preparation. R package BayesClustNof1 version 0.1.0, https://github.com/abdullah-al-mamun-stat/BayesClustNof1",
+  textVersion = paste("Al-Mamun, M. A. and Chapple, A. G. (2026).",
+                      "Local versus global borrowing of patient-specific treatment effects in series of N-of-1 trials: a Bayesian home-host clustering model.",
+                      "Manuscript in preparation. R package BayesClustNof1 version 0.1.0.")
+)
